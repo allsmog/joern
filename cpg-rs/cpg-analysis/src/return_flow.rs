@@ -58,6 +58,12 @@ impl ReturnFlowGraph {
                     && cpg.name_of(node).is_some_and(|name| !is_operator(name))
             })
             .collect();
+        let mut argument_owners: HashMap<NodeId, HashSet<NodeId>> = HashMap::new();
+        for &call in &named_calls {
+            for argument in cpg.arguments_of(call) {
+                argument_owners.entry(argument).or_default().insert(call);
+            }
+        }
         let mut graph = Self {
             edges: Vec::new(),
             call_origins: HashMap::new(),
@@ -75,7 +81,17 @@ impl ReturnFlowGraph {
             targets.sort();
             targets.dedup();
             for to in targets {
-                if owned.contains(&to) && !named_calls.contains(&to) {
+                // The persisted Joern DDG conservatively links unknown-call
+                // arguments. Native scanner value dependencies must not treat
+                // an input pointer as changing a sibling scalar (e.g. memcpy's
+                // already-validated length). Call summaries and explicit
+                // out-parameter policies supply actual transfers separately.
+                let sibling_arguments = argument_owners.get(&from).is_some_and(|owners| {
+                    argument_owners
+                        .get(&to)
+                        .is_some_and(|other| !owners.is_disjoint(other))
+                });
+                if owned.contains(&to) && !named_calls.contains(&to) && !sibling_arguments {
                     graph.add_edge(from, to, None, None);
                 }
             }

@@ -288,11 +288,11 @@ mod tests {
         }
         assert_eq!(NodeKind::Binding.to_u8(), 24);
         assert_eq!(NodeKind::from_u8(24), Some(NodeKind::Binding));
-        assert_eq!(NodeKind::Import.to_u8(), 25);
-        assert_eq!(NodeKind::from_u8(25), Some(NodeKind::Import));
-        assert_eq!(NodeKind::Dependency.to_u8(), 26);
-        assert_eq!(NodeKind::from_u8(26), Some(NodeKind::Dependency));
-        assert_eq!(NodeKind::from_u8(27), None);
+        assert_eq!(NodeKind::Import.to_u8(), 35);
+        assert_eq!(NodeKind::from_u8(35), Some(NodeKind::Import));
+        assert_eq!(NodeKind::Dependency.to_u8(), 33);
+        assert_eq!(NodeKind::from_u8(33), Some(NodeKind::Dependency));
+        assert_eq!(NodeKind::from_u8(42), None);
         let original_edges = [
             EdgeKind::Ast,
             EdgeKind::Cfg,
@@ -320,9 +320,9 @@ mod tests {
         }
         assert_eq!(EdgeKind::Binds.to_u8(), 19);
         assert_eq!(EdgeKind::from_u8(19), Some(EdgeKind::Binds));
-        assert_eq!(EdgeKind::Imports.to_u8(), 20);
-        assert_eq!(EdgeKind::from_u8(20), Some(EdgeKind::Imports));
-        assert_eq!(EdgeKind::from_u8(21), None);
-        assert_eq!(EdgeKind::ALL.len(), 21);
+        assert_eq!(EdgeKind::Imports.to_u8(), 24);
+        assert_eq!(EdgeKind::from_u8(24), Some(EdgeKind::Imports));
+        assert_eq!(EdgeKind::from_u8(25), None);
+        assert_eq!(EdgeKind::ALL.len(), 25);
     }
 }

@@ -998,9 +998,11 @@ impl Cpg {
                 (3, 27..) => None,
                 _ => NodeKind::from_u8(raw),
             };
-            kind.push(decoded.ok_or_else(|| DecodeError(format!(
-                "invalid version {version} node kind {raw} at node {i}"
-            )))?);
+            kind.push(decoded.ok_or_else(|| {
+                DecodeError(format!(
+                    "invalid version {version} node kind {raw} at node {i}"
+                ))
+            })?);
         }
         let file = (0..n)
             .map(|_| r.u32().map(FileId))
@@ -1061,9 +1063,11 @@ impl Cpg {
                     (3, 21..) => None,
                     _ => EdgeKind::from_u8(raw_kind),
                 };
-                let edge_kind = decoded.ok_or_else(|| DecodeError(format!(
-                    "invalid version {version} edge kind {raw_kind} at node {src}"
-                )))?;
+                let edge_kind = decoded.ok_or_else(|| {
+                    DecodeError(format!(
+                        "invalid version {version} edge kind {raw_kind} at node {src}"
+                    ))
+                })?;
                 let target = r.u32()? as usize;
                 if target >= n {
                     return Err(DecodeError(format!(
@@ -1963,6 +1967,65 @@ mod persistence_tests {
     }
 
     #[test]
+    fn native_v1_sparse_properties_upgrade_with_parity_metadata() {
+        // Fixed native v1 bytes: expanded master tags and optional edge/node
+        // properties predate the parity line's modifier/include columns.
+        let mut payload = valid_payload();
+        payload[PAYLOAD_NODE_KIND] = 35; // native v1 IMPORT
+        payload[PAYLOAD_EDGE_KIND] = 20; // native v1 DOMINATE (v3 used IMPORTS)
+        payload.splice(PAYLOAD_NEXT_FILE..PAYLOAD_NEXT_FILE, 0_u32.to_le_bytes());
+        let mut sparse = ByteWriter::new();
+        sparse.opt_u32(Some(0)); // external label
+        sparse.u32(1); // one property
+        sparse.u32(0); // label symbol
+        sparse.u8(0); // string array
+        sparse.u32(1);
+        sparse.opt_u32(Some(0));
+        payload.extend(sparse.buf);
+        let mut old = cpg2(&payload);
+        old[8..12].copy_from_slice(&FLAG_PASSTHROUGH_PROPERTIES.to_le_bytes());
+        let mut graph = Cpg::from_bytes(&old).unwrap();
+        let node = NodeId(0);
+        assert_eq!(graph.kind_of(node), NodeKind::Import);
+        assert_eq!(graph.out(node)[0].kind, EdgeKind::Dominate);
+        assert_eq!(graph.out(node)[0].property, Some(Sym(0)));
+        assert_eq!(graph.external_label_of(node), Some("x"));
+        assert_eq!(
+            graph.passthrough_property_named(node, "x"),
+            Some(&PropertyValue::Strings(vec![Some(Sym(0))]))
+        );
+        graph.set_imported_entity(node, Sym(0));
+        graph.set_modifier_type(node, Sym(0));
+        graph.set_column_number(node, -1);
+        graph.clear_order_property(node);
+        graph.add_edge_with_property(node, node, EdgeKind::Imports, Some(Sym(0)));
+        let bytes = graph.to_bytes();
+        assert_eq!(&bytes[..6], b"CPG2\x04\x00");
+        let reopened = Cpg::from_bytes(&bytes).unwrap();
+        assert_eq!(reopened.to_bytes(), bytes);
+        assert_eq!(reopened.imported_entity_of(node), Some("x"));
+        assert_eq!(reopened.modifier_type_of(node), Some("x"));
+        assert_eq!(reopened.column_number_of(node), Some(-1));
+        assert_eq!(reopened.order_property_of(node), OrderProperty::Absent);
+        assert_eq!(
+            reopened
+                .out(node)
+                .iter()
+                .map(|e| (e.kind, e.other, e.property))
+                .collect::<Vec<_>>(),
+            graph
+                .out(node)
+                .iter()
+                .map(|e| (e.kind, e.other, e.property))
+                .collect::<Vec<_>>()
+        );
+        assert_eq!(
+            reopened.passthrough_properties_of(node),
+            graph.passthrough_properties_of(node)
+        );
+    }
+
+    #[test]
     fn version_two_validates_modifier_symbols_and_new_schema_tags() {
         // The version 2 column is inserted immediately after the five old
         // string columns; all remaining version 1 bytes stay unchanged.
@@ -2011,17 +2074,18 @@ mod persistence_tests {
                 &cpg2_version(&payload[..end], 2),
             );
         }
-        for (offset, tag) in [
-            (PAYLOAD_NODE_KIND, NodeKind::Binding.to_u8()),
-            (PAYLOAD_EDGE_KIND, EdgeKind::Binds.to_u8()),
-            (PAYLOAD_NODE_KIND, NodeKind::Import.to_u8()),
-            (PAYLOAD_NODE_KIND, NodeKind::Dependency.to_u8()),
-            (PAYLOAD_EDGE_KIND, EdgeKind::Imports.to_u8()),
-        ] {
-            let mut invalid = valid_payload();
-            invalid[offset] = tag;
-            assert_decode_error_without_panic("new schema tag in CPG2 version 1", &cpg2(&invalid));
-            assert_decode_error_without_panic("new schema tag in CPG1", &legacy_cpg1(&invalid));
+        // The native master writer used the expanded schema in version 1.
+        // These tags must remain readable, even though the parity line only
+        // introduced Binding in v2 and used different Import tags in v3.
+        for kind in [NodeKind::Binding, NodeKind::Import, NodeKind::Dependency] {
+            let mut payload = valid_payload();
+            payload[PAYLOAD_NODE_KIND] = kind.to_u8();
+            for bytes in [cpg2(&payload), legacy_cpg1(&payload)] {
+                let graph = Cpg::from_bytes(&bytes).unwrap();
+                assert_eq!(graph.kind_of(NodeId(0)), kind);
+                let reopened = Cpg::from_bytes(&graph.to_bytes()).unwrap();
+                assert_eq!(reopened.kind_of(NodeId(0)), kind);
+            }
         }
         let mut invalid = sample_cpg("invalid symbol");
         let method = invalid.methods()[0];
@@ -2180,8 +2244,8 @@ mod persistence_tests {
         const MODIFIER_OFFSET: usize = PAYLOAD_NAME_SYM + 5 * 4;
         let mut payload = valid_payload();
         payload.splice(MODIFIER_OFFSET..MODIFIER_OFFSET, u32::MAX.to_le_bytes());
-        payload[PAYLOAD_NODE_KIND] = NodeKind::Import.to_u8();
-        payload[PAYLOAD_EDGE_KIND + 4] = EdgeKind::Imports.to_u8();
+        payload[PAYLOAD_NODE_KIND] = 25; // historical parity v3 Import tag
+        payload[PAYLOAD_EDGE_KIND + 4] = 20; // historical parity v3 Imports tag
         let extension = payload.len();
         for _ in 0..4 {
             payload.extend(0_u32.to_le_bytes());

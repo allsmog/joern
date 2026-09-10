@@ -1,9 +1,18 @@
 # Remaining Joern port work
 
-Updated **2026-09-09** against pinned **Joern 4.0.555**. This is the current
-remaining-work inventory and planning estimate. It supplements
-[PROGRESS.md](PROGRESS.md) and supersedes older architecture notes as a parity
-status report. The full pure Rust port is **incomplete**.
+Updated **2026-09-09** for the integration of the C parity branch with master.
+The full pure Rust port is **incomplete**. [COMPATIBILITY.md](COMPATIBILITY.md)
+is the current supported-workflow contract. Whole-project measurements and effort
+estimates below are historical parity-branch evidence; they have not been
+remeasured as completion estimates for the combined implementation.
+
+The integrated regression corpus passes **334/334** selected graph blocks and
+**4,188** ReachingDef facts against pinned Joern v4.0.555. Master also contributes
+per-translation-unit compiler inputs, a bounded native CPGQL traversal compiler,
+Flatgraph binary interchange, sparse graph properties and dominance edges,
+eight non-C differential corpora, sixteen pinned non-C projects, and expanded
+scanner rules. These bounded features reduce the gaps described by the original
+planning inventory; they do not establish complete Joern equivalence.
 
 ## How much is left?
 
@@ -37,7 +46,7 @@ number of agents.
 
 ## What is measured today
 
-The last completely accepted local checkpoint is the thirteenth batch,
+The last whole-project measurement checkpoint from the parity campaign is the thirteenth batch,
 commit `a806866acc83ce9b40b69259fe9e430a3e818dd0`. Its
 [metrics](../docs/conformance/astra-thirteenth-batch-metrics.json) and
 [report](../docs/conformance/astra-thirteenth-batch-2026-09-09.md) establish:
@@ -71,7 +80,7 @@ The **308/308** committed C comparison blocks pass, including a fresh live
 Joern comparison. That is a real regression guarantee for those blocks, not
 308 language features or a percentage of Joern.
 
-### Current uncommitted increment
+### Historical fourteenth increment
 
 The fourteenth increment adds observed macro Binding nodes and their links.
 Its integrated source has passed **492 tests in 83 groups**, formatting, strict
@@ -80,7 +89,7 @@ comparisons. Both complete zlib/Lua canonical outputs are byte-identical to the
 accepted thirteenth outputs: the table above remains current, with **zero
 canonical gains or losses** from this increment.
 
-This increment is **not yet a completed acceptance checkpoint**. Final candidate
+At that capture, this increment was **not yet a completed acceptance checkpoint**. Final candidate
 capture/retention review, resource-manifest reconciliation, remaining release
 and official acceptance checks, and local commit closeout remain pending. Do
 not treat its passing tests as completion of those steps. The macro fixtures
@@ -98,12 +107,12 @@ Dependencies overlap; **do not add every row to the milestone estimates above**.
 | R1 | Enumerate upstream frontends, versions/configurations, schema, queries, scripts, plugins and CLI contracts. There is no full tested denominator yet. | Versioned matrix maps each required behavior to an upstream control, Rust test, owner and pass/fail/unknown state. Unsupported routes stay visible. | **2–4 weeks; medium** |
 | R2 | Close C lowering and preprocessing differences: build definitions/include search; function-like macros in conditions; repeated body includes; runtime control chains split by directives; variadics, stringification and token pasting; nested expansion/recovery; remaining initializer/type forms and locations. Existing support is substantial but partial. | Source-derived AST, type, name and location projections match on both projects and retained diagnostics; new repository/configuration controls expose no silent truncation. Derived relations/flows belong to R3; full-schema coverage belongs to R4. | **12–28 weeks; low** |
 | R3 | Close analysis differences on correct graphs: CFG/reaching definitions, aliases, call resolution, interprocedural flow, library semantics and query outcomes. Production analysis already exists, including authoritative relations emitted through the C frontend. Broader Joern equivalence is not demonstrated. | Compare upstream graph relations and end-to-end reachable-flow/query results on isolated controls and complete projects, preserving multiplicity and errors. Classify defects by functionality and actual producer; do not count a source-lowering defect again as an analysis defect. | **12–32 weeks; low** |
-| R4 | Complete schema/property/edge representation and extraction contracts. End coordinates, offsets and edge payloads are absent; argument-index presence remains unknown. DOMINATE, POST_DOMINATE and ALIAS_OF are absent from the edge enum. Public JSON emits only six node fields. | Inventory the pinned schema; represent required typed values and absence; compare complete node properties and edge occurrences; preserve them through save/load and export. Frontend-specific fact derivation belongs to R2/R5/R6. | **10–24 weeks; medium-low** |
+| R4 | Complete schema/property/edge representation and extraction contracts. Sparse external properties and edge payloads, DOMINATE and POST_DOMINATE are now represented. Source-derived property completeness, argument-index presence and remaining upstream edge kinds still need full-schema verification. | Inventory the pinned schema; represent required typed values and absence; compare complete node properties and edge occurrences; preserve them through save/load and export. Frontend-specific fact derivation belongs to R2/R5/R6. | **10–24 weeks; medium-low** |
 | R5 | Bring existing non-C routes to measured parity: **C++, Go, Java, JavaScript, TypeScript/TSX, Python, Ruby, Rust and Scala**. All nine use the shared tree-sitter frontend; generic signatures, ANY returns and conservative branch lowering remain. C++ is not covered by the C campaign. | Per-language differential corpora and complete repositories cover names/types, imports, build context, inheritance, closures, overloads, dispatch and analysis. Common structural tests alone do not close this. | **60–160 weeks across the portfolio; low** |
 | R6 | Resolve and implement missing upstream routes: **ABAP, C#, Kotlin, PHP, Swift, JVM bytecode/Jimple and native binaries/Ghidra**. The pinned runtime has launchers; the Rust CLI has no corresponding routes. | First admit real reference runs and dependency/input contracts, then differential frontend and repository gates for every required route. Launcher presence alone does not prove the upstream tool operates here. | **80–200 weeks; very low** |
-| R7 | Expand query compatibility. Current QueryCompiler accepts method/call scans and exact `.name("...")` filters. The CLI JSON dispatcher is a separate small command set. Arbitrary CPGQL, traversal/path behavior and all querydb rules are not implemented. | A pinned query/querydb corpus matches results, ordering, multiplicity and errors against Joern. Reuse working graph/dataflow algorithms; do not count their repair again here. | **16–40 weeks; low**, excluding a general Scala runtime |
+| R7 | Expand query compatibility. The native QueryCompiler now implements a bounded traversal, predicate, path and projection surface with a pinned differential corpus. Arbitrary Scala/CPGQL and all QueryDB rules remain outside that boundary. | A pinned query/querydb corpus matches results, ordering, multiplicity and errors against Joern. Reuse working graph/dataflow algorithms; do not count their repair again here. | **16–40 weeks; low**, excluding a general Scala runtime |
 | R8 | Implement defined console, script, workspace and extension workflows. Native CLI, JSON and MCP interfaces already exist; Scala console/plugin compatibility does not. | Port and exercise an explicit workflow/script/extension corpus. Record the unresolved arbitrary Scala/JVM runtime contract separately; a Rust plugin API cannot make existing plugins compatible. | **8–24 weeks; low** for bounded workflows; arbitrary plugins unestimated |
-| R9 | Add production Joern saved-graph interoperability. CPG2 **v3**, older CPG2 readers and legacy CPG1 support are this project's formats. The separate Java reference observer is not a production Rust reader. | Rust-produced graphs load in pinned Joern and preserve properties, relationships and query results; reverse interchange passes too. A lossless exchange format alone does not close direct binary compatibility. | **6–16 weeks; medium-low**, after schema contracts |
+| R9 | Broaden the implemented Flatgraph import/export contract beyond its pinned C, Java and Python probes. CPG2 **v4** is the internal format and reads both prior native and parity layouts. | Rust-produced graphs load in pinned Joern and preserve properties, relationships and query results; reverse interchange passes too. A lossless exchange format alone does not close direct binary compatibility. | **6–16 weeks; medium-low**, after schema contracts |
 | R10 | Complete platform, installation, repository-scale and release validation. Five target configurations and release tooling exist; current accepted local evidence is macOS ARM64. | Successful artifacts and acceptance results for the exact final commit on each declared platform/container; clean/update equivalence, resource limits and failure handling on expanded repositories. | **4–10 weeks; medium**, excluding fixes charged to other packages |
 
 The highest uncertainty lies in R5/R6 and arbitrary extension compatibility.
@@ -121,8 +130,8 @@ native language feature must not inflate the required Joern-port denominator.
 
 ## Execution order and stopping criteria
 
-1. Finish acceptance of the current macro Binding increment and preserve the
-   existing green corpus. Do not claim a whole-project gain from it.
+1. Preserve the integrated corpus and full release gates. Reconcile the
+   historical work estimates against the combined implementation.
 2. Complete R1 while continuing bounded C repairs. Classify the **1,082**
    differing/missing blocks into root-cause groups with minimal reproducers.
    Retained diagnostics include missing `inflate` body lowering and remaining
@@ -157,7 +166,7 @@ Joern run is claimed. Its source-bound successful
 is `22226e60e948718e1b31a0f90cd3aef39fc606aff74a855798375e3afa3f77d5`.
 Current test and comparison logs are in
 [final-v1](../.local/astra-sprint/fourteenth-batch/final-v1/).
-These `.local` receipts exist in the integration worktree and are not portable
+These `.local` receipts were archived during worktree consolidation and are not portable
 committed artifacts; the accepted metrics remain the portable baseline.
 
 Source anchors, with line numbers at this snapshot:

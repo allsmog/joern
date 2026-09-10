@@ -76,7 +76,7 @@ fn supplemental_cli_reads_include_fields_and_explicit_absence_from_version_three
     let graph = directory.path().join("saved.cpg");
     cpg.save(graph.to_str().unwrap()).unwrap();
     let original = std::fs::read(&graph).unwrap();
-    assert_eq!(&original[..6], b"CPG2\x03\x00");
+    assert_eq!(&original[..6], b"CPG2\x04\x00");
     let output = Command::new(env!("CARGO_BIN_EXE_joern-parity"))
         .arg("--supplemental-cpg")
         .arg(&graph)

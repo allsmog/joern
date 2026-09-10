@@ -31,7 +31,7 @@ fn accepted_version_two_graphs_keep_the_complete_payload_prefix() {
             assert_eq!(graph.order_property_of(node), OrderProperty::Unknown);
         }
         let upgraded = graph.to_bytes();
-        assert_eq!(&upgraded[..6], b"CPG2\x03\x00", "{name}");
+        assert_eq!(&upgraded[..6], b"CPG2\x04\x00", "{name}");
         assert_eq!(
             &upgraded[6..12],
             &old[6..12],

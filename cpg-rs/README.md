@@ -11,8 +11,8 @@ The `0.1.x` release line is a bounded production preview for its documented nati
 workflows, but it is not a universal drop-in Joern replacement.
 
 The CLI accepts C, C++, Go, Java, JavaScript, TypeScript, Python, Ruby, Rust,
-and Scala. C's shipped build/analysis path is the same path guarded by 308/308
-exact Joern v4.0.555 corpus blocks, including 3,685/3,685 ReachingDef facts.
+and Scala. C's shipped build/analysis path is the same path guarded by 334/334
+exact Joern v4.0.555 corpus blocks, including 4,188/4,188 ReachingDef facts.
 Its deterministic build, persistence, export, flow, scan, SARIF, and update
 workflows are also gated on pinned zlib and Lua releases and labeled security
 outcomes. C++, Go, Java, JavaScript, TypeScript, Python, Ruby, and Rust also

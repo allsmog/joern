@@ -61,7 +61,6 @@ impl PreprocessorConfig {
     }
 }
 
-
 struct SourceUnit {
     file: String,
     src: String,
@@ -206,6 +205,7 @@ pub(crate) fn canonical_dump_sources_with_metadata_and_config(
         })
         .collect();
 
+    let retain_inactive = config == &PreprocessorConfig::default();
     // Project-wide registries: defined functions (calls to these never become
     // stubs; each also gets a method TYPE_DECL) and struct definitions.
     let mut defined: Vec<String> = Vec::new();
@@ -218,7 +218,14 @@ pub(crate) fn canonical_dump_sources_with_metadata_and_config(
     let mut used_types: std::collections::BTreeSet<String> = std::collections::BTreeSet::new();
     for u in &units {
         let b = u.src.as_bytes();
-        for f in translation_unit_items(u.tree.root_node(), u.src.as_bytes()) {
+        // Keep only one translation unit's include/macro history in memory.
+        // Default CDT header discovery does not need a preprocessing walk.
+        let items = if retain_inactive {
+            translation_unit_items(u.tree.root_node(), b)
+        } else {
+            body_macro_context_with_config(u.tree.root_node(), b, &u.file, &units, config).items
+        };
+        for f in items {
             match f.kind() {
                 "function_definition" => {
                     if let Some((name, _, _)) = fn_header(f, b) {
@@ -336,11 +343,18 @@ pub(crate) fn canonical_dump_sources_with_metadata_and_config(
     let mut prototypes = std::collections::BTreeMap::new();
     let mut unknown_declaration_prefixes = HashMap::new();
     for u in &units {
-        let context = body_macro_context_with_config(u.tree.root_node(), u.src.as_bytes(), &u.file, &units, config);
+        let context = body_macro_context_with_config(
+            u.tree.root_node(),
+            u.src.as_bytes(),
+            &u.file,
+            &units,
+            config,
+        );
+        let context = &context;
         let root = u.tree.root_node();
         let bytes = u.src.as_bytes();
         let active: HashSet<_> = context.items.iter().map(Node::id).collect();
-        let declarations = translation_unit_items(root, bytes)
+        let declarations = configured_items(root, bytes, context, retain_inactive)
             .into_iter()
             .filter(|node| node.kind() != "function_definition" || active.contains(&node.id()))
             .flat_map(|node| prototype_declarations(node, bytes, &context.body_macro_sites, 0));
@@ -491,8 +505,15 @@ pub(crate) fn canonical_dump_sources_with_metadata_and_config(
         .collect();
 
     for u in &units {
+        let context = body_macro_context_with_config(
+            u.tree.root_node(),
+            u.src.as_bytes(),
+            &u.file,
+            &units,
+            config,
+        );
+        let context = &context;
         let first_dump = dumps.len();
-        let context = body_macro_context_with_config(u.tree.root_node(), u.src.as_bytes(), &u.file, &units, config);
         let b = u.src.as_bytes();
         let root = u.tree.root_node();
         let BodyMacroContext {
@@ -502,9 +523,9 @@ pub(crate) fn canonical_dump_sources_with_metadata_and_config(
             body_macro_sites,
             header_declarations,
             typedef_states,
-        } = &context;
+        } = context;
         let mut type_sites = HashMap::new();
-        for item in translation_unit_items(root, b) {
+        for item in configured_items(root, b, context, retain_inactive) {
             type_sites.extend(collect_type_sites(
                 item,
                 b,
@@ -532,7 +553,7 @@ pub(crate) fn canonical_dump_sources_with_metadata_and_config(
         let mut function_full_names: HashMap<String, String> = HashMap::new();
         let mut globals: HashMap<String, String> = HashMap::new();
         let mut enumerators: Vec<String> = Vec::new();
-        for f in translation_unit_items(root, b) {
+        for f in configured_items(root, b, context, retain_inactive) {
             if f.kind() == "enum_specifier" {
                 if let Some(body) = f.child_by_field_name("body") {
                     for e in named_children(body) {
@@ -545,7 +566,7 @@ pub(crate) fn canonical_dump_sources_with_metadata_and_config(
                 }
             }
         }
-        for f in translation_unit_items(root, b) {
+        for f in configured_items(root, b, context, retain_inactive) {
             match f.kind() {
                 "function_definition" => {
                     let macros = macro_states.get(&f.id()).cloned().unwrap_or_default();
@@ -675,7 +696,7 @@ pub(crate) fn canonical_dump_sources_with_metadata_and_config(
         };
 
         // Standalone dump per user method, plus one per struct <clinit>.
-        for f in translation_unit_items(root, b) {
+        for f in configured_items(root, b, context, retain_inactive) {
             ctx.macros = macro_states.get(&f.id()).cloned().unwrap_or_default();
             let aggregate = typedef_aggregate(f).unwrap_or(f);
             match f.kind() {
@@ -710,7 +731,12 @@ pub(crate) fn canonical_dump_sources_with_metadata_and_config(
         // The per-file `<global>` wrapper method.
         let gkey = format!("{}:<global>", u.file);
         ctx.begin_block(&gkey);
-        ctx.emit_file_global(root, b, &u.file, &active_methods);
+        ctx.emit_file_global(
+            &configured_items(root, b, context, retain_inactive),
+            b,
+            &u.file,
+            &active_methods,
+        );
         ctx.edge("SOURCE_FILE", format!("M:{gkey}"), format!("F:{}", u.file));
         dumps.push((gkey, std::mem::take(&mut ctx.out)));
         ctx.resolve_macro_metadata(&mut dumps[first_dump..]);
@@ -930,7 +956,7 @@ pub(crate) fn canonical_dump_sources_with_metadata_and_config(
     // REACHING_DEF flows (the FLOWS| section).
     let mut flows: Vec<(String, String, String)> = Vec::new();
     for (key, text) in &dumps {
-        for (var, s, d) in reaching_def_flows(key, text, &expansion_control_kinds) {
+        for (var, s, d) in reaching_def_flows(key, text, &expansion_control_kinds, &defined) {
             flows.push((var, s, d));
         }
     }
@@ -2557,7 +2583,7 @@ impl Ctx<'_> {
     /// prototypes consume no slot — then METHOD_RETURN.
     fn emit_file_global(
         &mut self,
-        root: Node,
+        items: &[Node],
         b: &[u8],
         file: &str,
         active_methods: &HashSet<usize>,
@@ -2573,7 +2599,7 @@ impl Ctx<'_> {
                 ..Default::default()
             },
         );
-        for n in translation_unit_items(root, b) {
+        for &n in items {
             self.macros = self.macro_states.get(&n.id()).cloned().unwrap_or_default();
             match n.kind() {
                 "struct_specifier" | "union_specifier" | "enum_specifier"
@@ -2648,7 +2674,7 @@ impl Ctx<'_> {
             },
         );
         let mut slot = 1i64;
-        for n in translation_unit_items(root, b) {
+        for &n in items {
             self.macros = self.macro_states.get(&n.id()).cloned().unwrap_or_default();
             match n.kind() {
                 "struct_specifier" | "union_specifier" | "enum_specifier"
@@ -5798,20 +5824,7 @@ fn body_macro_context_with_config<'tree>(
                     collect_macro_expansions(condition, bytes, macros, body_sites);
                 }
                 let take = if matches!(node.kind(), "preproc_if" | "preproc_elif") {
-                    let definitions = macros
-                        .iter()
-                        .map(|(name, definition)| {
-                            (
-                                name.clone(),
-                                if definition.params.is_some() {
-                                    name.clone()
-                                } else {
-                                    definition.body.clone()
-                                },
-                            )
-                        })
-                        .collect();
-                    preproc_condition(node, bytes, &definitions)
+                    preproc_condition(node, bytes, macros)
                 } else if let Some(name) = node.child_by_field_name("name") {
                     let negated = node.child(0).is_some_and(|directive| {
                         matches!(directive.kind(), "#ifndef" | "#elifndef")
@@ -6113,12 +6126,15 @@ fn body_macro_context_with_config<'tree>(
     for definition in &inputs.defines {
         let (name, body) = definition.split_once('=').unwrap_or((definition, "1"));
         if !name.trim().is_empty() {
-            Arc::make_mut(&mut macros).insert(name.trim().to_string(), MacroDef {
-                params: None,
-                body: body.to_string(),
-                directive: format!("#define {} {}", name.trim(), body),
-                file: file.to_string(),
-            });
+            Arc::make_mut(&mut macros).insert(
+                name.trim().to_string(),
+                MacroDef {
+                    params: None,
+                    body: body.to_string(),
+                    directive: format!("#define {} {}", name.trim(), body),
+                    file: file.to_string(),
+                },
+            );
         }
     }
     let mut body_macro_sites = BodyMacroSites::new(root, bytes);
@@ -6134,17 +6150,36 @@ fn body_macro_context_with_config<'tree>(
     // They read only the supplied source snapshot, with one shared cycle/once set.
     for forced in &inputs.forced_includes {
         let name = resolve_configured_header(file, forced, false, units, inputs);
-        if let Some(unit) = name.and_then(|name| units.iter().find(|unit| {
-            normalize_source_path(std::path::Path::new(&unit.file)) == name
-        })) {
+        if let Some(unit) = name.and_then(|name| {
+            units
+                .iter()
+                .find(|unit| normalize_source_path(std::path::Path::new(&unit.file)) == name)
+        }) {
             let mut header_items = Vec::new();
             let mut header_states = HashMap::new();
             for child in translation_unit_children(unit.tree.root_node(), unit.src.as_bytes()) {
-                collect(child, unit.src.as_bytes(), &unit.file, units, inputs,
-                    &mut visiting, &mut once, &mut macros, &mut header_items,
-                    &mut header_states, &mut header_declarations, &mut typedefs,
-                    &mut typedef_states, &mut type_bindings, false, false,
-                    &mut body_macro_sites, false, 0, false);
+                collect(
+                    child,
+                    unit.src.as_bytes(),
+                    &unit.file,
+                    units,
+                    inputs,
+                    &mut visiting,
+                    &mut once,
+                    &mut macros,
+                    &mut header_items,
+                    &mut header_states,
+                    &mut header_declarations,
+                    &mut typedefs,
+                    &mut typedef_states,
+                    &mut type_bindings,
+                    false,
+                    false,
+                    &mut body_macro_sites,
+                    false,
+                    0,
+                    false,
+                );
             }
         }
     }
@@ -6205,33 +6240,55 @@ fn normalize_source_path(path: &std::path::Path) -> String {
 }
 
 fn configured_include_name(
-    node: Node, bytes: &[u8], file: &str, units: &[SourceUnit], inputs: &TranslationUnitConfig,
+    node: Node,
+    bytes: &[u8],
+    file: &str,
+    units: &[SourceUnit],
+    inputs: &TranslationUnitConfig,
 ) -> Option<String> {
-    if node.kind() != "preproc_include" { return None; }
+    if node.kind() != "preproc_include" {
+        return None;
+    }
     let spelling = text(node.child_by_field_name("path")?, bytes);
-    let (name, angled) = if let Some(name) = spelling.strip_prefix('"').and_then(|s| s.strip_suffix('"')) {
-        (name, false)
-    } else {
-        (spelling.strip_prefix('<')?.strip_suffix('>')?, true)
-    };
+    let (name, angled) =
+        if let Some(name) = spelling.strip_prefix('"').and_then(|s| s.strip_suffix('"')) {
+            (name, false)
+        } else {
+            (spelling.strip_prefix('<')?.strip_suffix('>')?, true)
+        };
     resolve_configured_header(file, name, angled, units, inputs)
 }
 
 fn resolve_configured_header(
-    file: &str, name: &str, angled: bool, units: &[SourceUnit], inputs: &TranslationUnitConfig,
+    file: &str,
+    name: &str,
+    angled: bool,
+    units: &[SourceUnit],
+    inputs: &TranslationUnitConfig,
 ) -> Option<String> {
     let mut candidates = Vec::new();
     if !angled {
-        let parent = std::path::Path::new(file).parent().unwrap_or_else(|| std::path::Path::new(""));
+        let parent = std::path::Path::new(file)
+            .parent()
+            .unwrap_or_else(|| std::path::Path::new(""));
         candidates.push(parent.join(name));
         candidates.push(std::path::PathBuf::from(name));
     }
-    candidates.extend(inputs.include_paths.iter().map(|dir| std::path::Path::new(dir).join(name)));
-    candidates.into_iter().map(|path| normalize_source_path(&path)).find(|name| {
-        units.iter().any(|unit| normalize_source_path(std::path::Path::new(&unit.file)) == *name)
-    })
+    candidates.extend(
+        inputs
+            .include_paths
+            .iter()
+            .map(|dir| std::path::Path::new(dir).join(name)),
+    );
+    candidates
+        .into_iter()
+        .map(|path| normalize_source_path(&path))
+        .find(|name| {
+            units
+                .iter()
+                .any(|unit| normalize_source_path(std::path::Path::new(&unit.file)) == *name)
+        })
 }
-
 
 fn source_macro_definition(node: Node, bytes: &[u8], file: &str) -> Option<(String, MacroDef)> {
     if !matches!(node.kind(), "preproc_def" | "preproc_function_def") {
@@ -6254,7 +6311,17 @@ fn source_macro_definition(node: Node, bytes: &[u8], file: &str) -> Option<(Stri
         let params = if formals.trim().is_empty() {
             Vec::new()
         } else {
-            formals.split(',').map(|p| p.trim().to_string()).collect()
+            formals
+                .split(',')
+                .map(|p| {
+                    let p = p.trim();
+                    if p == "..." {
+                        "__VA_ARGS__".to_string()
+                    } else {
+                        p.to_string()
+                    }
+                })
+                .collect()
         };
         (Some(params), tail[close + 1..].trim().to_string())
     } else {
@@ -7753,37 +7820,56 @@ fn macro_argument_match_code(source: &str) -> String {
     out
 }
 
-/// Whole-word substitution of macro parameters with argument source text.
+/// Substitute preprocessing tokens, keeping literals opaque to # and ##.
 fn substitute(body: &str, params: &[String], args: &[String]) -> String {
+    let argument = |word: &str| -> Option<String> {
+        let index = params.iter().position(|p| p == word)?;
+        if word == "__VA_ARGS__" {
+            Some(args.get(index..).unwrap_or_default().join(", "))
+        } else {
+            args.get(index).cloned()
+        }
+    };
     let mut out = String::new();
     let bytes = body.as_bytes();
     let mut i = 0;
     while i < bytes.len() {
-        if matches!(bytes[i], b'\'' | b'"') {
-            let quote = bytes[i];
-            let start = i;
-            i += 1;
-            while i < bytes.len() {
-                if bytes[i] == b'\\' {
-                    i = (i + 2).min(bytes.len());
-                } else if bytes[i] == quote {
-                    i += 1;
-                    break;
-                } else {
-                    i += 1;
-                }
+        if let Some(end) = macro_opaque_end(bytes, i) {
+            out.push_str(&body[i..end]);
+            i = end;
+        } else if bytes[i..].starts_with(b"##") {
+            out.truncate(out.trim_end().len());
+            i += 2;
+            while bytes.get(i).is_some_and(u8::is_ascii_whitespace) {
+                i += 1;
             }
-            out.push_str(&body[start..i]);
-        } else if bytes[i].is_ascii_alphabetic() || bytes[i] == b'_' {
+        } else if bytes[i] == b'#' {
+            let hash = i;
+            i += 1;
+            while bytes.get(i).is_some_and(u8::is_ascii_whitespace) {
+                i += 1;
+            }
             let start = i;
             while i < bytes.len() && (bytes[i].is_ascii_alphanumeric() || bytes[i] == b'_') {
                 i += 1;
             }
-            let word = &body[start..i];
-            match params.iter().position(|p| p == word) {
-                Some(k) if k < args.len() => out.push_str(&args[k]),
-                _ => out.push_str(word),
+            if let Some(value) = argument(&body[start..i]) {
+                out.push_str(&stringify_macro_argument(&value));
+            } else {
+                out.push_str(&body[hash..i]);
             }
+        } else if macro_identifier_unit(bytes, i, true) > 0 {
+            let start = i;
+            i += macro_identifier_unit(bytes, i, true);
+            while i < bytes.len() {
+                let next = macro_identifier_unit(bytes, i, false);
+                if next == 0 {
+                    break;
+                }
+                i += next;
+            }
+            let word = &body[start..i];
+            out.push_str(argument(word).as_deref().unwrap_or(word));
         } else {
             let c = body[i..].chars().next().unwrap();
             out.push(c);
@@ -7791,6 +7877,32 @@ fn substitute(body: &str, params: &[String], args: &[String]) -> String {
         }
     }
     out
+}
+
+fn stringify_macro_argument(source: &str) -> String {
+    let source = macro_argument_text(source);
+    let bytes = source.as_bytes();
+    let mut normalized = String::new();
+    let mut i = 0;
+    while i < bytes.len() {
+        if let Some(end) = macro_opaque_end(bytes, i) {
+            normalized.push_str(&source[i..end]);
+            i = end;
+        } else if bytes[i].is_ascii_whitespace() {
+            normalized.push(' ');
+            while bytes.get(i).is_some_and(u8::is_ascii_whitespace) {
+                i += 1;
+            }
+        } else {
+            let c = source[i..].chars().next().unwrap();
+            normalized.push(c);
+            i += c.len_utf8();
+        }
+    }
+    format!(
+        "\"{}\"",
+        normalized.replace('\\', "\\\\").replace('"', "\\\"")
+    )
 }
 
 fn expanded_cast_descriptor(desc: Node, bytes: &[u8]) -> String {
@@ -8131,6 +8243,20 @@ fn expand_function_macro_tokens(
 #[cfg(test)]
 mod macro_token_tests {
     use super::*;
+
+    #[test]
+    fn substitution_preserves_literals_unicode_and_variadic_tokens() {
+        let params = vec!["x".into(), "__VA_ARGS__".into()];
+        let args = vec!["café".into(), "first".into(), "second".into()];
+        assert_eq!(
+            substitute("x ## _suffix, __VA_ARGS__, \"#x ##\"", &params, &args),
+            "café_suffix, first, second, \"#x ##\""
+        );
+        assert_eq!(
+            substitute("#x", &["x".into()], &["a   + \"b  c\"".into()]),
+            "\"a + \\\"b  c\\\"\""
+        );
+    }
 
     #[test]
     fn declaration_expansion_preserves_opaque_preprocessing_tokens() {
@@ -8587,6 +8713,19 @@ fn translation_unit_children<'tree>(root: Node<'tree>, bytes: &[u8]) -> Vec<Node
 /// Joern retains declarations from every translation-unit preprocessor branch,
 /// including inactive `#if 0` and `#else` branches. Flatten only those wrappers;
 /// function bodies and macro-definition selection have their own semantics.
+fn configured_items<'tree>(
+    root: Node<'tree>,
+    bytes: &[u8],
+    context: &BodyMacroContext<'tree>,
+    retain_inactive: bool,
+) -> Vec<Node<'tree>> {
+    if retain_inactive {
+        translation_unit_items(root, bytes)
+    } else {
+        context.items.clone()
+    }
+}
+
 pub(crate) fn translation_unit_items<'tree>(root: Node<'tree>, b: &[u8]) -> Vec<Node<'tree>> {
     fn collect<'tree>(node: Node<'tree>, b: &[u8], items: &mut Vec<Node<'tree>>) {
         if matches!(
@@ -8744,20 +8883,7 @@ fn kept_preproc_children<'tree>(
     macros: &MacroState,
 ) -> Vec<Node<'tree>> {
     let take = if matches!(node.kind(), "preproc_if" | "preproc_elif") {
-        let definitions = macros
-            .iter()
-            .map(|(name, definition)| {
-                (
-                    name.clone(),
-                    if definition.params.is_some() {
-                        name.clone()
-                    } else {
-                        definition.body.clone()
-                    },
-                )
-            })
-            .collect();
-        preproc_condition(node, bytes, &definitions)
+        preproc_condition(node, bytes, macros)
     } else if let Some(name) = node.child_by_field_name("name") {
         let negated = node
             .child(0)
@@ -8785,11 +8911,21 @@ fn kept_preproc_children<'tree>(
 /// particular, replacing VALUE with `1 + 2` must not implicitly parenthesize
 /// it in `VALUE * 3`. The normal C expression grammar also accepts ternaries,
 /// which tree-sitter's preprocessor-condition grammar does not represent.
-fn preproc_condition(node: Node, b: &[u8], definitions: &HashMap<String, String>) -> bool {
+fn preproc_condition(node: Node, b: &[u8], macros: &MacroState) -> bool {
+    let definitions = macros
+        .iter()
+        .map(|(name, definition)| (name.clone(), definition.body.clone()))
+        .collect();
     let line = preproc_logical_line(node, b);
     let condition = preproc_payload(&line);
     let mut budget = 65_536usize;
-    let expanded = expand_preproc_objects(condition, definitions, &mut HashSet::new(), &mut budget);
+    let expanded = expand_preproc_tokens(
+        condition,
+        &definitions,
+        Some(macros),
+        &mut HashSet::new(),
+        &mut budget,
+    );
     let source = format!("int __condition(void) {{ return {expanded}; }}");
     let mut parser = Parser::new();
     parser
@@ -8809,6 +8945,16 @@ fn preproc_condition(node: Node, b: &[u8], definitions: &HashMap<String, String>
 fn expand_preproc_objects(
     source: &str,
     definitions: &HashMap<String, String>,
+    expanding: &mut HashSet<String>,
+    budget: &mut usize,
+) -> String {
+    expand_preproc_tokens(source, definitions, None, expanding, budget)
+}
+
+fn expand_preproc_tokens(
+    source: &str,
+    definitions: &HashMap<String, String>,
+    macros: Option<&HashMap<String, MacroDef>>,
     expanding: &mut HashSet<String>,
     budget: &mut usize,
 ) -> String {
@@ -8873,11 +9019,31 @@ fn expand_preproc_objects(
             }
             if expanding.len() < 64 && !expanding.contains(name) {
                 if let Some(replacement) = definitions.get(name) {
+                    let replacement = if let Some(params) = macros
+                        .and_then(|m| m.get(name))
+                        .and_then(|m| m.params.as_ref())
+                    {
+                        let mut open = i;
+                        while bytes.get(open).is_some_and(u8::is_ascii_whitespace) {
+                            open += 1;
+                        }
+                        if let Some((args, end)) = macro_arguments(source, open) {
+                            i = end + 1;
+                            substitute(replacement, params, &args)
+                        } else {
+                            out.push_str(name);
+                            *budget = budget.saturating_sub(name.len());
+                            continue;
+                        }
+                    } else {
+                        replacement.clone()
+                    };
                     *budget -= 1;
                     expanding.insert(name.to_string());
-                    out.push_str(&expand_preproc_objects(
-                        replacement,
+                    out.push_str(&expand_preproc_tokens(
+                        &replacement,
                         definitions,
+                        macros,
                         expanding,
                         budget,
                     ));
@@ -9751,6 +9917,7 @@ fn operator_semantics(name: &str) -> Option<Vec<(i64, i64)>> {
         | "<operator>.preDecrement"
         | "<operator>.preIncrement" => incdec,
         "<operator>.sizeOf" => vec![],
+        "free" => vec![(1, 1)],
         // modulo, arrayInitializer, the literals: PTF (pass-through) — and any
         // operator not listed (subtraction, multiplication, comparisons,
         // logicalAnd/Or, …) — get no explicit semantics: pass-through.
@@ -9831,6 +9998,7 @@ fn reaching_def_flows(
     block: &str,
     text: &str,
     expansion_control_kinds: &HashMap<String, String>,
+    defined_functions: &[String],
 ) -> Vec<(String, String, String)> {
     let arena = parse_dump_block(text);
     let n = arena.len();
@@ -10300,7 +10468,7 @@ fn reaching_def_flows(
                 // flow semantics (pass-through when the operator has none).
                 let valid = gnode == c
                     || match &sem {
-                        None => true,
+                        None => !defined_functions.contains(&arena[c].name),
                         Some(maps) => maps.contains(&(u_idx, arena[gnode].arg_index)),
                     };
                 if valid {

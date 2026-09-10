@@ -116,7 +116,7 @@ jobs:
         run: ./cpg-rs/joern-parity/setup-oracle.sh
       - name: Run exact C graph and flow differential
         working-directory: cpg-rs/joern-parity
-        run: ./check.sh
+        run: ./check.sh --live
       - name: Run cross-language frontend differential
         working-directory: cpg-rs
         run: ./acceptance/languages/check.sh

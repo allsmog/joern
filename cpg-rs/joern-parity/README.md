@@ -49,8 +49,8 @@ edge kind, one scaffolding block, and one reaching-definition block. The
 reported count is **comparison blocks**, not languages, programs, or a feature
 completion percentage.
 
-The committed corpus is byte-identical to Joern v4.0.555 across 308 graph
-blocks and 3,685 ReachingDef facts. It covers methods and global scaffolding,
+The committed corpus is byte-identical to Joern v4.0.555 across 334 graph
+blocks and 4,188 ReachingDef facts. It covers methods and global scaffolding,
 preprocessing, compiler inputs, CFG/REF/CALL and schema edges, structs, arrays,
 heap objects, indirect fields, local and aliased function pointers,
 pointer-to-pointer writes, returned aliases, pointer fields, rebind/kill

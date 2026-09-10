@@ -19,7 +19,7 @@ Status meanings:
 
 | Language | Build and query | Save/load | Flow and scan | Incremental update | Evidence | Status |
 |---|---|---|---|---|---|---|
-| C | Yes | Yes | Yes, including SARIF | Yes; correctness-first full-project rebuild | 308/308 Joern v4.0.555 graph blocks; 3,685/3,685 ReachingDef facts; canonical outcome suite; pinned zlib 1.3.1 and Lua 5.4.7 | **Production preview** |
+| C | Yes | Yes | Yes, including SARIF | Yes; correctness-first full-project rebuild | 334/334 Joern v4.0.555 graph blocks; 4,188/4,188 ReachingDef facts; canonical outcome suite; pinned zlib 1.3.1 and Lua 5.4.7 | **Production preview** |
 | C++ | Yes | Yes | Yes | Generic frontend | 13/13 live Joern probes; cxxopts and expected deterministic workflows; labeled default rules | **Production preview** |
 | Go | Yes | Yes | Yes | File-local incremental path | 13/13 live Joern probes; google/uuid and gjson deterministic workflows; labeled default rules | **Production preview** |
 | Java | Yes | Yes | Yes | File-local incremental path | 13/13 live Joern probes; Gson and jsoup deterministic workflows; labeled default rules | **Production preview** |
@@ -195,18 +195,22 @@ unstored coordinates, property presence, and edge properties and relationships
 remained open. The thirteenth checkpoint repaired the observed include pairs;
 broader property and relationship parity remains incomplete.
 
-The native writer now emits CPG2 version 3; readers retain CPG2 versions 1–2
-and legacy CPG1 support. Version 2 added a modifier-property column and binding
-node/edge tags; version 3 adds optional properties, a column coordinate and
-explicit ORDER presence. Actual old-writer fixtures exercise compatibility.
+The native writer emits CPG2 version 4. Readers retain the native v1 schema
+(including sparse properties), parity v2/v3 tags and columns, and legacy CPG1.
+Version 4 combines modifier and include metadata, explicit ORDER presence,
+expanded schema tags and sparse external properties without reinterpreting old
+tags. Fixed old-writer fixtures and mixed-property upgrades exercise this boundary.
 The reserved optional-line sentinel cannot represent
 `Some(u32::MAX)`; saving that value returns an error before replacing a file.
-This is this project's storage format, without Joern binary interoperability.
+CPG2 is this project's storage format; the separate Flatgraph import/export
+commands provide the bounded Joern binary interoperability described below.
 
-Confirmed remaining C gaps include broader include/build-definition context,
-function-like macros in preprocessor conditions,
-repeated body includes and runtime control chains split by preprocessor directives,
-variadics, stringification, token pasting, unbraced multi-statement replacements,
+Explicit compiler inputs now select active top-level declarations; default
+parsing retains CDT's inactive declaration headers with empty bodies. Include
+paths, forced includes, per-file compilation database definitions, function-like
+conditions, variadics, stringification and token pasting have focused controls.
+Remaining C gaps include broader combinations of build context, repeated body
+includes, runtime control chains split by directives, unbraced multi-statement replacements,
 unpinned initializer and field-designator forms, tagged and alias type
 resolution, nested macro expansion and recovery-context behavior, and further
 reaching-definition boundaries. Unused local alias registration and GNU
@@ -244,7 +248,7 @@ the supported integration surfaces.
 ## Release-blocking gates
 
 Every release must pass the locked Rust workspace tests, formatting, Clippy,
-dependency audit, 308/308 committed C parity, canonical C scanner outcomes,
+dependency audit, 334/334 committed C parity, canonical C scanner outcomes,
 the 188-label default-rule quality gates, the all-language acceptance test,
 pinned zlib/Lua and 16-project non-C acceptance, and packaged binary and
 container tests. Release CI also reruns the live Joern C, cross-language,

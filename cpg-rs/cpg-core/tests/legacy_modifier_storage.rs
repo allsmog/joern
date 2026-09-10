@@ -30,7 +30,7 @@ fn accepted_version_one_graphs_upgrade_without_changing_existing_payload() {
             "{name}"
         );
         let upgraded = graph.to_bytes();
-        assert_eq!(&upgraded[..6], b"CPG2\x03\x00", "{name}");
+        assert_eq!(&upgraded[..6], b"CPG2\x04\x00", "{name}");
         // Check preserved checksum configuration and authoritative-layer flags.
         assert_eq!(&upgraded[6..12], &old[6..12], "{name}");
 

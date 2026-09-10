@@ -4,15 +4,13 @@ Single source of truth across iterations. Update in the same commit as the work.
 
 ## Current state
 
-- **Remaining-work inventory (2026-09-09).** See
-  [REMAINING_PORT_WORK.md](REMAINING_PORT_WORK.md) for measured C gaps,
-  the full frontend/query/schema/product backlog, completion criteria and
-  explicitly uncertain engineering estimates. The current uncommitted
-  fourteenth macro Binding increment has passed 492 tests and 308/308
-  committed plus fresh live comparisons; its remaining acceptance and
-  closeout steps are listed there. Both complete whole-project canonical
-  outputs remain unchanged. The thirteenth batch below remains the last
-  fully accepted local checkpoint; full port parity is incomplete.
+- **Integration of preserved work (2026-09-09).** The combined corpus passes
+  **334/334** blocks, including **4,188** ReachingDef facts, against fresh pinned
+  Joern v4.0.555 output. The source-aware C parity implementation is combined
+  with compiler inputs, native CPGQL, Flatgraph, expanded schema and scanner
+  features from master. CPG2 v4 retains both development lines' older formats;
+  cache shape is 26. Historical branch checkpoints below describe their own
+  source versions. Whole-project equality and full Joern parity remain open.
 
 - **Thirteenth measured Astra batch (2026-09-09 UTC).** Production C graphs
   retain the observed per-include IMPORT/DEPENDENCY pairs and caller namespace

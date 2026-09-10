@@ -197,7 +197,13 @@ char *entry(char *value) { unknown(value); zero(); return declared(value); }
     assert_direct(&cpg, declared, "declared");
     assert_eq!(cpg.type_full_name_of(declared), Some("char*"));
     let zero = method(&cpg, "zero");
-    let params = cpg.parameters_of(zero);
+    // Native positional queries omit index-zero implicit parameters. The
+    // Joern schema still retains its unresolved p0 through raw AST traversal.
+    assert!(cpg.parameters_of(zero).is_empty());
+    let params: Vec<_> = cpg
+        .out_kind(zero, EdgeKind::Ast)
+        .filter(|&node| cpg.kind_of(node) == NodeKind::MethodParameterIn)
+        .collect();
     assert_eq!(params.len(), 1);
     assert_eq!(cpg.name_of(params[0]), Some("p0"));
     assert_eq!(cpg.order_of(params[0]), 0);

@@ -199,7 +199,7 @@ fn complete_observed_macro_bindings_survive_pipeline_and_save_load() {
         let path = directory.path().join("macro-bindings.cpg");
         graph.save(path.to_str().unwrap()).unwrap();
         let bytes = std::fs::read(&path).unwrap();
-        assert_eq!(&bytes[..6], b"CPG2\x03\x00");
+        assert_eq!(&bytes[..6], b"CPG2\x04\x00");
         let reopened = Cpg::load(path.to_str().unwrap()).unwrap();
         assert_eq!(
             observed_components(&reopened),
